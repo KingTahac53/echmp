@@ -41,3 +41,25 @@ This project extends **Mem0** and is evaluated using the **LoCoMo benchmark**.
 ```bash
 python layer1/demo.py
 ```
+
+Ensure the following are running:
+
+- Ollama (http://localhost:11434)
+- Neo4j (bolt://localhost:7687)
+- Docker Desktop
+
+## Roadmap
+
+- ✅ Layer 1 – Conflict Resolution
+
+- Layer 2 – Memory Consolidation
+
+- Layer 3 – Strategic Pruning
+
+- Mem0 Integration
+
+- LoCoMo Evaluation
+
+## Authors
+
+Team 4 – University Capstone Project
