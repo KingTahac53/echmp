@@ -1,0 +1,17 @@
+embedder:
+  provider: huggingface
+  config:
+    model: sentence-transformers/all-MiniLM-L6-v2
+
+vector_store:
+  provider: qdrant
+  config:
+    path: ./mem0_qdrant
+    on_disk: false
+    collection_name: echmp_local_384
+    embedding_model_dims: 384
+
+llm:
+  provider: ollama
+  config:
+    model: llama3.1:8b

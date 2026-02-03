@@ -6,7 +6,11 @@ __pycache__/
 
 # Virtual env
 venv/
+venv_mem0/
 .env
+
+# artifacts
+mem0_qdrant
 
 # OS
 .DS_Store
