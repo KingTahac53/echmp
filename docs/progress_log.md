@@ -33,3 +33,26 @@ Date: 2026-02-13
 - Dataset ingestion stable and reproducible
 
 Status: Layer 1 stable and operational.
+
+---
+
+## Milestone 2 — Session-Ordered LoCoMo Validation
+
+Date: 2026-02-13
+
+### Validation Performed:
+
+- Confirmed chronological session ordering (session_1 → session_5)
+- Verified 92 utterances processed successfully
+- Confirmed stable dataset ingestion pipeline
+- Verified 20 structured facts generated from LoCoMo
+- Confirmed no unintended fact collapsing
+- Metrics pipeline reproducible
+
+### Current Metrics Snapshot:
+
+- Utterances processed: 92
+- Total facts: 20
+- Active facts: 20
+- Superseded facts: 0
+- Conflicts resolved: 0
