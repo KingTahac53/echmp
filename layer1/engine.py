@@ -43,48 +43,65 @@ class Layer1Engine:
     def _extract_deterministic(self, utterance) -> list[dict]:
         utterance_lower = utterance.lower()
         triplets = []
-        print("UTTERANCE:", utterance_lower)
 
-        if "teacher" in utterance_lower:
+        # Work / Job
+        if "work" in utterance_lower or "job" in utterance_lower:
             triplets.append(
                 {
                     "subject": "User",
-                    "relation": "WorksAs",
-                    "object": "teacher",
+                    "relation": "Other",
+                    "object": "mentions work",
                     "timestamp": "",
                 }
             )
 
-        if "principal" in utterance_lower:
+        # Education
+        if "school" in utterance_lower or "edu" in utterance_lower:
             triplets.append(
                 {
                     "subject": "User",
-                    "relation": "WorksAs",
-                    "object": "principal",
+                    "relation": "Other",
+                    "object": "education event",
                     "timestamp": "",
                 }
             )
 
-        if "seattle" in utterance_lower:
+        # Marriage
+        if "married" in utterance_lower:
+            triplets.append(
+                {
+                    "subject": "User",
+                    "relation": "Other",
+                    "object": "married",
+                    "timestamp": "",
+                }
+            )
+
+        # Years
+        import re
+
+        year_match = re.search(r"(\d+)\s+years", utterance_lower)
+        if year_match:
+            triplets.append(
+                {
+                    "subject": "User",
+                    "relation": "Other",
+                    "object": f"{year_match.group(1)} years",
+                    "timestamp": "",
+                }
+            )
+
+        # Moving
+        if "moved" in utterance_lower:
             triplets.append(
                 {
                     "subject": "User",
                     "relation": "Location",
-                    "object": "Seattle",
+                    "object": "new location",
                     "timestamp": "",
                 }
             )
 
-        if "portland" in utterance_lower:
-            triplets.append(
-                {
-                    "subject": "User",
-                    "relation": "Location",
-                    "object": "Portland",
-                    "timestamp": "",
-                }
-            )
-        print("DETERMINISTIC TRIPLETS:", triplets)
         return triplets
 
     # ---------------- OPTIONAL LLM MODE ----------------
@@ -250,11 +267,14 @@ TEXT:
             ts_new = self.parse_timestamp(timestamp)
 
             with self.driver.session() as session:
-                existing = session.execute_read(
-                    self._find_active_fact,
-                    "User",
-                    relation,
-                )
+                existing = None
+
+                if relation in ["WorksAs", "Location"]:
+                    existing = session.execute_read(
+                        self._find_active_fact,
+                        "User",
+                        relation,
+                    )
 
                 version = 1
 
@@ -270,6 +290,46 @@ TEXT:
                     else:
                         continue
                 print("Processing:", relation, "timestamp:", timestamp)
+                session.execute_write(
+                    self._create_fact,
+                    "User",
+                    relation,
+                    triplet["object"],
+                    timestamp,
+                    version,
+                )
+
+    def ingest_utterance_with_timestamp(self, utterance: str, session_timestamp: str):
+        triplets = self.extract_triplets(utterance)
+
+        for triplet in triplets:
+            relation = triplet["relation"]
+
+            timestamp = session_timestamp[:7] if session_timestamp else ""
+
+            ts_new = self.parse_timestamp(timestamp)
+
+            with self.driver.session() as session:
+                existing = None
+
+                if relation in ["WorksAs", "Location"]:
+                    existing = session.execute_read(
+                        self._find_active_fact,
+                        "User",
+                        relation,
+                    )
+
+                version = 1
+
+                if existing:
+                    ts_existing = self.parse_timestamp(existing["timestamp"])
+                    version = existing["version"] + 1
+
+                    if ts_new > ts_existing:
+                        session.execute_write(self._supersede_fact, existing.id)
+                    else:
+                        continue
+
                 session.execute_write(
                     self._create_fact,
                     "User",
