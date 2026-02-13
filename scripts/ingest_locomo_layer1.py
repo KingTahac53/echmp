@@ -11,7 +11,7 @@ engine = Layer1Engine(
     neo4j_uri="bolt://localhost:7687",
     neo4j_user="neo4j",
     neo4j_password="password",
-    use_llm=False,  # deterministic for now
+    use_llm=True,  # deterministic for now
 )
 
 with engine.driver.session() as session:

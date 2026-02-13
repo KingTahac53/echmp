@@ -31,11 +31,22 @@ class Layer1Engine:
     # EXTRACTION LAYER
     # ============================================================
 
-    def extract_triplets(self, utterance) -> list[dict]:
-        if self.use_llm:
-            return self._extract_with_llm(utterance)
-        else:
-            return self._extract_deterministic(utterance)
+    def extract_triplets(self, utterance):
+        deterministic = self._extract_deterministic(utterance)
+
+        if not self.use_llm:
+            return deterministic
+
+        llm = self._extract_with_llm(utterance)
+
+        # Merge without duplicates
+        combined = deterministic.copy()
+
+        for item in llm:
+            if item not in combined:
+                combined.append(item)
+
+        return combined
 
     # ---------------- DETERMINISTIC (STABLE) ----------------
     print("DETERMINISTIC EXTRACTION ACTIVE")

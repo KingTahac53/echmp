@@ -56,3 +56,31 @@ Date: 2026-02-13
 - Active facts: 20
 - Superseded facts: 0
 - Conflicts resolved: 0
+
+---
+
+## Milestone 3 — Hybrid Extraction Enabled
+
+Date: 2026-02-13
+
+### Completed:
+
+- Enabled hybrid extraction (deterministic + LLM)
+- Maintained schema validation for LLM outputs
+- Preserved deterministic safety for critical relations
+- Increased fact coverage on LoCoMo dataset
+- Demonstrated modular extraction architecture
+
+### Dataset Execution Metrics (Hybrid Mode)
+
+- Utterances processed: 92
+- Total facts extracted: 84
+- Active facts: 84
+- Superseded facts: 0
+- Conflicts resolved: 0
+- Execution time: ~35 minutes (LLM-enabled)
+
+Observation:
+Hybrid extraction significantly increased fact coverage compared to deterministic-only mode (20 → 84 facts).
+
+Status: Layer 1 now supports extensible semantic extraction.
