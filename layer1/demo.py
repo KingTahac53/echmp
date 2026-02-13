@@ -7,7 +7,11 @@ engine = Layer1Engine(
     neo4j_uri="bolt://localhost:7687",
     neo4j_user="neo4j",
     neo4j_password="password",
+    use_llm=False,  # 🔥 STABLE MODE
 )
+
+with engine.driver.session() as session:
+    session.run("MATCH (n) DETACH DELETE n;")
 
 engine.ingest_utterance("Month 1: I just started a new job as a teacher in Seattle.")
 

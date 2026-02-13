@@ -9,11 +9,11 @@ class Layer1Mem0Adapter:
 
     def fetch_active_facts(self):
         query = """
-        MATCH (s:Entity)-[r {status:"ACTIVE"}]->(o:Entity)
+        MATCH (s:Entity)-[:HAS_FACT]->(f:Fact {status:"ACTIVE"})-[:TARGET]->(o:Entity)
         RETURN s.name AS subject,
-               type(r) AS relation,
+               f.relation AS relation,
                o.name AS object,
-               r.timestamp AS timestamp
+               f.timestamp AS timestamp
         """
         with self.driver.session() as session:
             return list(session.run(query))
@@ -22,7 +22,11 @@ class Layer1Mem0Adapter:
         facts = self.fetch_active_facts()
 
         for f in facts:
-            sentence = fact_to_sentence(f["subject"], f["relation"], f["object"])
+            sentence = fact_to_sentence(
+                f["subject"],
+                f["relation"],
+                f["object"],
+            )
 
             self.memory.add(
                 sentence,
