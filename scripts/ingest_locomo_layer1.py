@@ -11,7 +11,7 @@ engine = Layer1Engine(
     neo4j_uri="bolt://localhost:7687",
     neo4j_user="neo4j",
     neo4j_password="password",
-    use_llm=True,  # deterministic for now
+    use_llm=False,  # deterministic for now
 )
 
 with engine.driver.session() as session:
@@ -34,7 +34,7 @@ print("Ingesting sample_id:", sample["sample_id"])
 
 # ---------------- INGEST FIRST 3 SESSIONS ----------------
 
-sessions_to_process = 3
+sessions_to_process = 1000
 utterance_count = 0
 
 # Automatically detect session keys
@@ -49,7 +49,7 @@ session_keys = sorted(session_keys, key=lambda x: int(x.split("_")[1]))
 
 utterance_count = 0
 
-for session_key in session_keys[:5]:  # maybe first 5 sessions
+for session_key in session_keys[:sessions_to_process]:  # maybe first 5 sessions
     date_key = session_key + "_date_time"
     session_date = conversation.get(date_key, "")
 
@@ -81,4 +81,4 @@ print("Total facts:", total_facts)
 print("Active facts:", active)
 print("Superseded facts:", superseded)
 print("Conflicts resolved:", superseded)
-print("Session keys detected:", session_keys[:5])
+print("Session keys detected:", session_keys[:sessions_to_process])
