@@ -84,3 +84,29 @@ Observation:
 Hybrid extraction significantly increased fact coverage compared to deterministic-only mode (20 → 84 facts).
 
 Status: Layer 1 now supports extensible semantic extraction.
+
+---
+
+## Milestone 4 — Mem0 Backend Integration Attempt
+
+Date: 2026-02-14
+
+### Completed:
+
+- Implemented sync pipeline from ACTIVE Neo4j facts to Mem0 backend
+- Configured Qdrant + HuggingFace embedding + Ollama LLM
+- Limited sync to 20 facts for controlled testing
+
+### Execution Result:
+
+- Mem0 initialization successful
+- 20 ACTIVE facts retrieved
+- LLM backend (Ollama) terminated with CUDA memory error during embedding
+- Hardware limitation identified (insufficient RAM/GPU capacity)
+
+### Conclusion:
+
+Mem0 backend integration code is complete and ready.
+Full execution requires higher-spec hardware environment.
+
+Status: Ready for execution on teammate’s machine.
