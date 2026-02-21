@@ -1,1 +1,425 @@
-"""\nECHMP Layer 2: Memory Consolidation\nImplements four sub-processes: 2A, 2B, 2C, 2D\n"""\n\nimport uuid\nimport logging\nfrom datetime import datetime\nfrom typing import List, Dict, Tuple, Optional\nimport numpy as np\nfrom sentence_transformers import SentenceTransformer\nfrom sklearn.cluster import AgglomerativeClustering\nfrom sklearn.metrics.pairwise import cosine_similarity\nimport requests\nimport json\nfrom neo4j import GraphDatabase\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO)\nlogger = logging.getLogger(__name__)\n\n\nclass Layer2Consolidator:\n    """\n    Main orchestrator for Layer 2 memory consolidation.\n    Processes ACTIVE facts from Layer 1 through four sequential sub-processes.\n    """\n    \n    def __init__(\n        self,\n        neo4j_uri: str = \"bolt://localhost:7687\",\n        neo4j_user: str = \"neo4j\",\n        neo4j_password: str = \"password\",\n        ollama_url: str = \"http://localhost:11434\",\n        embedding_model: str = \"sentence-transformers/all-MiniLM-L6-v2\",\n        similarity_threshold: float = 0.85\n    ):\n        """\n        Initialize Layer 2 consolidator.\n        \n        Args:\n            neo4j_uri: Neo4j database connection string\n            neo4j_user: Neo4j username\n            neo4j_password: Neo4j password\n            ollama_url: Ollama API endpoint\n            embedding_model: SentenceTransformer model name\n            similarity_threshold: Cosine similarity threshold for consolidation\n        """\n        self.neo4j_driver = GraphDatabase.driver(\n            neo4j_uri, \n            auth=(neo4j_user, neo4j_password)\n        )\n        self.ollama_url = ollama_url\n        self.similarity_threshold = similarity_threshold\n        \n        # Initialize embedding model (2A)\n        logger.info(f\"Loading embedding model: {embedding_model}\")\n        self.embedding_model = SentenceTransformer(embedding_model)\n        logger.info(\"Embedding model loaded successfully\")\n        \n    def close(self):\n        \"\"\"Close database connection.\"\"\"\n        self.neo4j_driver.close()\n        \n    def run_consolidation(self) -> Dict[str, any]:\n        \"\"\"\n        Execute complete Layer 2 consolidation pipeline.\n        \n        Returns:\n            Dict containing consolidation statistics\n        \"\"\"\n        logger.info(\"Starting Layer 2 consolidation pipeline...\")\n        \n        # Fetch ACTIVE facts from Neo4j\n        facts = self._fetch_active_facts()\n        logger.info(f\"Retrieved {len(facts)} ACTIVE facts from Layer 1\")\n        \n        if len(facts) == 0:\n            logger.warning(\"No ACTIVE facts found. Skipping consolidation.\")\n            return {\"status\": \"skipped\", \"reason\": \"no_active_facts\"}\n        \n        # Sub-Process 2A: Embedding Generation & Similarity\n        embeddings, similarity_matrix = self._process_2a_embeddings(facts)\n        logger.info(\"Sub-process 2A completed: Embeddings generated\")\n        \n        # Sub-Process 2B: Clustering\n        clusters = self._process_2b_clustering(facts, similarity_matrix)\n        logger.info(f\"Sub-process 2B completed: {len(clusters)} clusters formed\")\n        \n        # Sub-Process 2C: LLM Summarization\n        generalizations = self._process_2c_summarization(clusters, embeddings)\n        logger.info(f\"Sub-process 2C completed: {len(generalizations)} generalizations created\")\n        \n        # Sub-Process 2D: Graph Update\n        stats = self._process_2d_graph_update(generalizations)\n        logger.info(\"Sub-process 2D completed: Graph updated\")\n        \n        return stats\n    \n    def _fetch_active_facts(self) -> List[Dict]:\n        \"\"\"\n        Fetch all ACTIVE facts from Neo4j.\n        \n        Returns:\n            List of fact dictionaries with id, subject, relation, object, timestamp\n        \"\"\"\n        query = \"\"\"\n        MATCH (f:Fact)\n        WHERE f.status = 'ACTIVE'\n        RETURN f.id AS id, \n               f.subject AS subject, \n               f.relation AS relation, \n               f.object AS object,\n               f.timestamp AS timestamp,\n               f.text AS text\n        \"\"\"\n        \n        with self.neo4j_driver.session() as session:\n            result = session.run(query)\n            facts = []\n            for record in result:\n                # Create text representation for embedding\n                fact_text = record[\"text\"] if record[\"text\"] else \\\n                           f\"{record['subject']} {record['relation']} {record['object']}\"\n                \n                facts.append({\n                    \"id\": record[\"id\"],\n                    \"subject\": record[\"subject\"],\n                    \"relation\": record[\"relation\"],\n                    \"object\": record[\"object\"],\n                    \"timestamp\": record[\"timestamp\"],\n                    \"text\": fact_text\n                })\n            return facts\n    \n    def _process_2a_embeddings(\n        self, \n        facts: List[Dict]\n    ) -> Tuple[np.ndarray, np.ndarray]:\n        \"\"\"\n        Sub-Process 2A: Embedding Generation and Similarity Computation.\n        \n        Args:\n            facts: List of fact dictionaries\n            \n        Returns:\n            Tuple of (embeddings, similarity_matrix)\n        \"\"\"\n        logger.info(\"2A: Generating embeddings...\")\n        \n        # Extract text representations\n        texts = [fact[\"text\"] for fact in facts]\n        \n        # Generate embeddings (384-dimensional)\n        embeddings = self.embedding_model.encode(\n            texts, \n            convert_to_numpy=True,\n            show_progress_bar=True\n        )\n        \n        # Compute pairwise cosine similarity\n        similarity_matrix = cosine_similarity(embeddings)\n        \n        # Log similarity statistics\n        high_sim_count = np.sum(similarity_matrix > self.similarity_threshold) - len(facts)\n        logger.info(f\"2A: Found {high_sim_count} fact pairs above threshold {self.similarity_threshold}\")\n        \n        return embeddings, similarity_matrix\n    \n    def _process_2b_clustering(\n        self,\n        facts: List[Dict],\n        similarity_matrix: np.ndarray\n    ) -> List[List[Dict]]:\n        \"\"\"\n        Sub-Process 2B: Clustering and Grouping.\n        \n        Args:\n            facts: List of fact dictionaries\n            similarity_matrix: Pairwise similarity matrix\n            \n        Returns:\n            List of clusters, where each cluster is a list of facts\n        \"\"\"\n        logger.info(\"2B: Performing hierarchical clustering...\")\n        \n        if len(facts) < 2:\n            # Single fact = single cluster\n            return [[facts[0]]] if facts else []\n        \n        # Convert similarity to distance for clustering\n        distance_matrix = 1 - similarity_matrix\n        \n        # Agglomerative clustering with complete linkage\n        clustering = AgglomerativeClustering(\n            n_clusters=None,\n            distance_threshold=1 - self.similarity_threshold,\n            metric='precomputed',\n            linkage='complete'\n        )\n        \n        cluster_labels = clustering.fit_predict(distance_matrix)\n        \n        # Group facts by cluster ID\n        clusters_dict = {}\n        for idx, label in enumerate(cluster_labels):\n            if label not in clusters_dict:\n                clusters_dict[label] = []\n            clusters_dict[label].append(facts[idx])\n        \n        clusters = list(clusters_dict.values())\n        \n        # Log cluster size distribution\n        cluster_sizes = [len(c) for c in clusters]\n        logger.info(f\"2B: Cluster sizes - min: {min(cluster_sizes)}, \"\n                   f\"max: {max(cluster_sizes)}, avg: {np.mean(cluster_sizes):.2f}\")\n        \n        return clusters\n    \n    def _process_2c_summarization(\n        self,\n        clusters: List[List[Dict]],\n        embeddings: np.ndarray\n    ) -> List[Dict]:\n        \"\"\"\n        Sub-Process 2C: Summarization via Language Model.\n        \n        Args:\n            clusters: List of fact clusters\n            embeddings: Fact embeddings for validation\n            \n        Returns:\n            List of generalization dictionaries\n        \"\"\"\n        logger.info(\"2C: Generating LLM summaries...\")\n        \n        generalizations = []\n        \n        for cluster_id, cluster in enumerate(clusters):\n            # Skip singleton clusters (nothing to consolidate)\n            if len(cluster) == 1:\n                logger.debug(f\"Cluster {cluster_id}: Singleton, skipping\")\n                continue\n            \n            logger.info(f\"2C: Processing cluster {cluster_id} with {len(cluster)} facts\")\n            \n            # Construct LLM prompt\n            fact_texts = [f\"- {fact['text']}\" for fact in cluster]\n            prompt = (\n                \"Summarize the following related facts into a single general statement. \"\n                \"Response in one sentence.\\n\\n\"\n                + \"\\n\".join(fact_texts)\n            )\n            \n            # Call Ollama API\n            try:\n                summary = self._call_ollama(prompt)\n                \n                # Validate semantic consistency\n                summary_embedding = self.embedding_model.encode([summary])[0]\n                \n                generalization = {\n                    \"id\": str(uuid.uuid4()),\n                    \"summary_text\": summary,\n                    \"source_facts\": [fact[\"id\"] for fact in cluster],\n                    \"cluster_id\": cluster_id,\n                    \"fact_count\": len(cluster),\n                    \"timestamp\": datetime.now().isoformat()\n                }\n                \n                generalizations.append(generalization)\n                logger.info(f\"2C: Created generalization: {summary[:80]}...\")\n                \n            except Exception as e:\n                logger.error(f\"2C: Failed to summarize cluster {cluster_id}: {e}\")\n                continue\n        \n        return generalizations\n    \n    def _call_ollama(self, prompt: str, model: str = \"llama3.2:1b\") -> str:\n        \"\"\"\n        Call Ollama API for LLM inference.\n        \n        Args:\n            prompt: Input prompt\n            model: Ollama model name\n            \n        Returns:\n            Generated text\n        \"\"\"\n        url = f\"{self.ollama_url}/api/generate\"\n        payload = {\n            \"model\": model,\n            \"prompt\": prompt,\n            \"stream\": False,\n            \"options\": {\n                \"temperature\": 0.3,\n                \"top_p\": 0.9\n            }\n        }\n        \n        response = requests.post(url, json=payload, timeout=30)\n        response.raise_for_status()\n        \n        result = response.json()\n        return result[\"response\"].strip()\n    \n    def _process_2d_graph_update(\n        self,\n        generalizations: List[Dict]\n    ) -> Dict[str, any]:\n        \"\"\"\n        Sub-Process 2D: Graph Update and Consolidation.\n        \n        Args:\n            generalizations: List of generalization dictionaries\n            \n        Returns:\n            Dictionary of consolidation statistics\n        \"\"\"\n        logger.info(\"2D: Updating Neo4j graph...\")\n        \n        with self.neo4j_driver.session() as session:\n            # Count original facts\n            original_count = session.run(\n                \"MATCH (f:Fact {status: 'ACTIVE'}) RETURN count(f) AS count\"\n            ).single()[\"count\"]\n            \n            for gen in generalizations:\n                # Create GENERALIZATION_NODE\n                session.run(\"\"\"\n                    CREATE (g:GeneralizationNode {\n                        node_id: $node_id,\n                        summary_text: $summary_text,\n                        timestamp: $timestamp,\n                        source_facts: $source_facts,\n                        compression_ratio: $compression_ratio\n                    })\n                \"\"\", \n                    node_id=gen[\"id\"],\n                    summary_text=gen[\"summary_text\"],\n                    timestamp=gen[\"timestamp\"],\n                    source_facts=gen[\"source_facts\"],\n                    compression_ratio=1.0 / gen[\"fact_count\"]\n                )\n                \n                # Create CONSOLIDATES_TO relationships and mark facts\n                for fact_id in gen[\"source_facts\"]:\n                    session.run(\"\"\"\n                        MATCH (f:Fact {id: $fact_id})\n                        MATCH (g:GeneralizationNode {node_id: $gen_id})\n                        SET f.status = 'CONSOLIDATED'\n                        MERGE (f)-[:CONSOLIDATES_TO]->(g)\n                    \"\"\",\n                        fact_id=fact_id,\n                        gen_id=gen[\"id\"]\n                    )\n                \n                logger.info(f\"2D: Created generalization node {gen['id'][:8]}... \"\n                          f\"consolidating {gen['fact_count']} facts\")\n            \n            # Count final active facts\n            final_count = session.run(\n                \"MATCH (f:Fact {status: 'ACTIVE'}) RETURN count(f) AS count\"\n            ).single()[\"count\"]\n            \n            # Count generalization nodes\n            gen_count = session.run(\n                \"MATCH (g:GeneralizationNode) RETURN count(g) AS count\"\n            ).single()[\"count\"]\n        \n        stats = {\n            \"original_facts\": original_count,\n            \"consolidated_facts\": original_count - final_count,\n            \"remaining_active\": final_count,\n            \"generalizations_created\": gen_count,\n            \"compression_ratio\": final_count / original_count if original_count > 0 else 1.0\n        }\n        \n        logger.info(f\"2D: Consolidation complete - {stats['compression_ratio']:.1%} retention rate\")\n        \n        return stats\n\n\n# Demo / Test Script\ndef demo_layer2():\n    \"\"\"\n    Demonstration of Layer 2 consolidation.\n    Assumes Layer 1 has already populated ACTIVE facts in Neo4j.\n    \"\"\"\n    print(\"=\"*60)\n    print(\"ECHMP Layer 2 Demo: Memory Consolidation\")\n    print(\"=\"*60)\n    \n    # Initialize consolidator\n    consolidator = Layer2Consolidator(\n        neo4j_uri=\"bolt://localhost:7687\",\n        neo4j_user=\"neo4j\",\n        neo4j_password=\"your_password_here\",  # UPDATE THIS\n        ollama_url=\"http://localhost:11434\",\n        similarity_threshold=0.85\n    )\n    \n    try:\n        # Run consolidation pipeline\n        stats = consolidator.run_consolidation()\n        \n        # Print results\n        print(\"\\n\" + \"=\"*60)\n        print(\"CONSOLIDATION RESULTS\")\n        print(\"=\"*60)\n        for key, value in stats.items():\n            print(f\"{key}: {value}\")\n        print(\"=\"*60)\n        \n    except Exception as e:\n        print(f\"Error: {e}\")\n        import traceback\n        traceback.print_exc()\n    finally:\n        consolidator.close()\n\n\nif __name__ == \"__main__\":\n    demo_layer2()\n
+"""
+ECHMP Layer 2: Memory Consolidation
+Implements four sub-processes: 2A, 2B, 2C, 2D
+"""
+
+import uuid
+import logging
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics.pairwise import cosine_similarity
+import requests
+import json
+from neo4j import GraphDatabase
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class Layer2Consolidator:
+    """
+    Main orchestrator for Layer 2 memory consolidation.
+    Processes ACTIVE facts from Layer 1 through four sequential sub-processes.
+    """
+    
+    def __init__(
+        self,
+        neo4j_uri: str = "bolt://localhost:7687",
+        neo4j_user: str = "neo4j",
+        neo4j_password: str = "password",
+        ollama_url: str = "http://localhost:11434",
+        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        similarity_threshold: float = 0.85
+    ):
+        """
+        Initialize Layer 2 consolidator.
+        
+        Args:
+            neo4j_uri: Neo4j database connection string
+            neo4j_user: Neo4j username
+            neo4j_password: Neo4j password
+            ollama_url: Ollama API endpoint
+            embedding_model: SentenceTransformer model name
+            similarity_threshold: Cosine similarity threshold for consolidation
+        """
+        self.neo4j_driver = GraphDatabase.driver(
+            neo4j_uri, 
+            auth=(neo4j_user, neo4j_password)
+        )
+        self.ollama_url = ollama_url
+        self.similarity_threshold = similarity_threshold
+        
+        # Initialize embedding model (2A)
+        logger.info(f"Loading embedding model: {embedding_model}")
+        self.embedding_model = SentenceTransformer(embedding_model)
+        logger.info("Embedding model loaded successfully")
+        
+    def close(self):
+        """Close database connection."""
+        self.neo4j_driver.close()
+        
+    def run_consolidation(self) -> Dict[str, any]:
+        """
+        Execute complete Layer 2 consolidation pipeline.
+        
+        Returns:
+            Dict containing consolidation statistics
+        """
+        logger.info("Starting Layer 2 consolidation pipeline...")
+        
+        # Fetch ACTIVE facts from Neo4j
+        facts = self._fetch_active_facts()
+        logger.info(f"Retrieved {len(facts)} ACTIVE facts from Layer 1")
+        
+        if len(facts) == 0:
+            logger.warning("No ACTIVE facts found. Skipping consolidation.")
+            return {"status": "skipped", "reason": "no_active_facts"}
+        
+        # Sub-Process 2A: Embedding Generation & Similarity
+        embeddings, similarity_matrix = self._process_2a_embeddings(facts)
+        logger.info("Sub-process 2A completed: Embeddings generated")
+        
+        # Sub-Process 2B: Clustering
+        clusters = self._process_2b_clustering(facts, similarity_matrix)
+        logger.info(f"Sub-process 2B completed: {len(clusters)} clusters formed")
+        
+        # Sub-Process 2C: LLM Summarization
+        generalizations = self._process_2c_summarization(clusters, embeddings)
+        logger.info(f"Sub-process 2C completed: {len(generalizations)} generalizations created")
+        
+        # Sub-Process 2D: Graph Update
+        stats = self._process_2d_graph_update(generalizations)
+        logger.info("Sub-process 2D completed: Graph updated")
+        
+        return stats
+    
+    def _fetch_active_facts(self) -> List[Dict]:
+        """
+        Fetch all ACTIVE facts from Neo4j.
+        
+        Returns:
+            List of fact dictionaries with id, subject, relation, object, timestamp
+        """
+        query = """
+        MATCH (f:Fact)
+        WHERE f.status = 'ACTIVE'
+        RETURN f.id AS id, 
+               f.subject AS subject, 
+               f.relation AS relation, 
+               f.object AS object,
+               f.timestamp AS timestamp,
+               f.text AS text
+        """
+        
+        with self.neo4j_driver.session() as session:
+            result = session.run(query)
+            facts = []
+            for record in result:
+                # Create text representation for embedding
+                fact_text = record["text"] if record["text"] else \
+                           f"{record['subject']} {record['relation']} {record['object']}"
+                
+                facts.append({
+                    "id": record["id"],
+                    "subject": record["subject"],
+                    "relation": record["relation"],
+                    "object": record["object"],
+                    "timestamp": record["timestamp"],
+                    "text": fact_text
+                })
+            return facts
+    
+    def _process_2a_embeddings(
+        self, 
+        facts: List[Dict]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Sub-Process 2A: Embedding Generation and Similarity Computation.
+        
+        Args:
+            facts: List of fact dictionaries
+            
+        Returns:
+            Tuple of (embeddings, similarity_matrix)
+        """
+        logger.info("2A: Generating embeddings...")
+        
+        # Extract text representations
+        texts = [fact["text"] for fact in facts]
+        
+        # Generate embeddings (384-dimensional)
+        embeddings = self.embedding_model.encode(
+            texts, 
+            convert_to_numpy=True,
+            show_progress_bar=True
+        )
+        
+        # Compute pairwise cosine similarity
+        similarity_matrix = cosine_similarity(embeddings)
+        
+        # Log similarity statistics
+        high_sim_count = np.sum(similarity_matrix > self.similarity_threshold) - len(facts)
+        logger.info(f"2A: Found {high_sim_count} fact pairs above threshold {self.similarity_threshold}")
+        
+        return embeddings, similarity_matrix
+    
+    def _process_2b_clustering(
+        self,
+        facts: List[Dict],
+        similarity_matrix: np.ndarray
+    ) -> List[List[Dict]]:
+        """
+        Sub-Process 2B: Clustering and Grouping.
+        
+        Args:
+            facts: List of fact dictionaries
+            similarity_matrix: Pairwise similarity matrix
+            
+        Returns:
+            List of clusters, where each cluster is a list of facts
+        """
+        logger.info("2B: Performing hierarchical clustering...")
+        
+        if len(facts) < 2:
+            # Single fact = single cluster
+            return [[facts[0]]] if facts else []
+        
+        # Convert similarity to distance for clustering
+        distance_matrix = 1 - similarity_matrix
+        
+        # Agglomerative clustering with complete linkage
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=1 - self.similarity_threshold,
+            metric='precomputed',
+            linkage='complete'
+        )
+        
+        cluster_labels = clustering.fit_predict(distance_matrix)
+        
+        # Group facts by cluster ID
+        clusters_dict = {}
+        for idx, label in enumerate(cluster_labels):
+            if label not in clusters_dict:
+                clusters_dict[label] = []
+            clusters_dict[label].append(facts[idx])
+        
+        clusters = list(clusters_dict.values())
+        
+        # Log cluster size distribution
+        cluster_sizes = [len(c) for c in clusters]
+        logger.info(f"2B: Cluster sizes - min: {min(cluster_sizes)}, "
+                   f"max: {max(cluster_sizes)}, avg: {np.mean(cluster_sizes):.2f}")
+        
+        return clusters
+    
+    def _process_2c_summarization(
+        self,
+        clusters: List[List[Dict]],
+        embeddings: np.ndarray
+    ) -> List[Dict]:
+        """
+        Sub-Process 2C: Summarization via Language Model.
+        
+        Args:
+            clusters: List of fact clusters
+            embeddings: Fact embeddings for validation
+            
+        Returns:
+            List of generalization dictionaries
+        """
+        logger.info("2C: Generating LLM summaries...")
+        
+        generalizations = []
+        
+        for cluster_id, cluster in enumerate(clusters):
+            # Skip singleton clusters (nothing to consolidate)
+            if len(cluster) == 1:
+                logger.debug(f"Cluster {cluster_id}: Singleton, skipping")
+                continue
+            
+            logger.info(f"2C: Processing cluster {cluster_id} with {len(cluster)} facts")
+            
+            # Construct LLM prompt
+            fact_texts = [f"- {fact['text']}" for fact in cluster]
+            prompt = (
+                "Summarize the following related facts into a single general statement. "
+                "Response in one sentence.\n\n"
+                + "\n".join(fact_texts)
+            )
+            
+            # Call Ollama API
+            try:
+                summary = self._call_ollama(prompt)
+                
+                # Validate semantic consistency
+                summary_embedding = self.embedding_model.encode([summary])[0]
+                
+                generalization = {
+                    "id": str(uuid.uuid4()),
+                    "summary_text": summary,
+                    "source_facts": [fact["id"] for fact in cluster],
+                    "cluster_id": cluster_id,
+                    "fact_count": len(cluster),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                generalizations.append(generalization)
+                logger.info(f"2C: Created generalization: {summary[:80]}...")
+                
+            except Exception as e:
+                logger.error(f"2C: Failed to summarize cluster {cluster_id}: {e}")
+                continue
+        
+        return generalizations
+    
+    def _call_ollama(self, prompt: str, model: str = "llama3.2:1b") -> str:
+        """
+        Call Ollama API for LLM inference.
+        
+        Args:
+            prompt: Input prompt
+            model: Ollama model name
+            
+        Returns:
+            Generated text
+        """
+        url = f"{self.ollama_url}/api/generate"
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "top_p": 0.9
+            }
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result["response"].strip()
+    
+    def _process_2d_graph_update(
+        self,
+        generalizations: List[Dict]
+    ) -> Dict[str, any]:
+        """
+        Sub-Process 2D: Graph Update and Consolidation.
+        
+        Args:
+            generalizations: List of generalization dictionaries
+            
+        Returns:
+            Dictionary of consolidation statistics
+        """
+        logger.info("2D: Updating Neo4j graph...")
+        
+        with self.neo4j_driver.session() as session:
+            # Count original facts
+            original_count = session.run(
+                "MATCH (f:Fact {status: 'ACTIVE'}) RETURN count(f) AS count"
+            ).single()["count"]
+            
+            for gen in generalizations:
+                # Create GENERALIZATION_NODE
+                session.run("""
+                    CREATE (g:GeneralizationNode {
+                        node_id: $node_id,
+                        summary_text: $summary_text,
+                        timestamp: $timestamp,
+                        source_facts: $source_facts,
+                        compression_ratio: $compression_ratio
+                    })
+                """, 
+                    node_id=gen["id"],
+                    summary_text=gen["summary_text"],
+                    timestamp=gen["timestamp"],
+                    source_facts=gen["source_facts"],
+                    compression_ratio=1.0 / gen["fact_count"]
+                )
+                
+                # Create CONSOLIDATES_TO relationships and mark facts
+                for fact_id in gen["source_facts"]:
+                    session.run("""
+                        MATCH (f:Fact {id: $fact_id})
+                        MATCH (g:GeneralizationNode {node_id: $gen_id})
+                        SET f.status = 'CONSOLIDATED'
+                        MERGE (f)-[:CONSOLIDATES_TO]->(g)
+                    """,
+                        fact_id=fact_id,
+                        gen_id=gen["id"]
+                    )
+                
+                logger.info(f"2D: Created generalization node {gen['id'][:8]}... "
+                          f"consolidating {gen['fact_count']} facts")
+            
+            # Count final active facts
+            final_count = session.run(
+                "MATCH (f:Fact {status: 'ACTIVE'}) RETURN count(f) AS count"
+            ).single()["count"]
+            
+            # Count generalization nodes
+            gen_count = session.run(
+                "MATCH (g:GeneralizationNode) RETURN count(g) AS count"
+            ).single()["count"]
+        
+        stats = {
+            "original_facts": original_count,
+            "consolidated_facts": original_count - final_count,
+            "remaining_active": final_count,
+            "generalizations_created": gen_count,
+            "compression_ratio": final_count / original_count if original_count > 0 else 1.0
+        }
+        
+        logger.info(f"2D: Consolidation complete - {stats['compression_ratio']:.1%} retention rate")
+        
+        return stats
+
+
+# Demo / Test Script
+def demo_layer2():
+    """
+    Demonstration of Layer 2 consolidation.
+    Assumes Layer 1 has already populated ACTIVE facts in Neo4j.
+    """
+    print("="*60)
+    print("ECHMP Layer 2 Demo: Memory Consolidation")
+    print("="*60)
+    
+    # Initialize consolidator
+    consolidator = Layer2Consolidator(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password="your_password_here",  # UPDATE THIS
+        ollama_url="http://localhost:11434",
+        similarity_threshold=0.85
+    )
+    
+    try:
+        # Run consolidation pipeline
+        stats = consolidator.run_consolidation()
+        
+        # Print results
+        print("\n" + "="*60)
+        print("CONSOLIDATION RESULTS")
+        print("="*60)
+        for key, value in stats.items():
+            print(f"{key}: {value}")
+        print("="*60)
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        consolidator.close()
+
+
+if __name__ == "__main__":
+    demo_layer2()
