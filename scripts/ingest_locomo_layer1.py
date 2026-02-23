@@ -11,14 +11,12 @@ engine = Layer1Engine(
     neo4j_uri="bolt://localhost:7687",
     neo4j_user="neo4j",
     neo4j_password="password",
-    use_llm=False,  # deterministic for now
+    use_llm=False,  # deterministic mode (stable & fast)
 )
 
-with engine.driver.session() as session:
-    session.run("MATCH (n) DETACH DELETE n;")
+# ---------------- RESET DATABASE ----------------
 
-# ---------------- RESET DB ----------------
-
+print("Resetting Neo4j database...")
 with engine.driver.session() as session:
     session.run("MATCH (n) DETACH DELETE n;")
 
@@ -27,46 +25,45 @@ with engine.driver.session() as session:
 with open(LOCOMO_PATH, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-sample = data[0]  # only first conversation
-conversation = sample["conversation"]
+print(f"Loaded {len(data)} conversations from LoCoMo\n")
 
-print("Ingesting sample_id:", sample["sample_id"])
+total_utterances = 0
+conversation_counter = 0
 
-# ---------------- INGEST FIRST 3 SESSIONS ----------------
+# ---------------- INGEST ALL CONVERSATIONS ----------------
 
-sessions_to_process = 1000
-utterance_count = 0
+for sample in data:
+    conversation_counter += 1
+    print(f"Ingesting sample {conversation_counter}: {sample['sample_id']}")
 
-# Automatically detect session keys
-session_keys = [
-    k
-    for k in conversation.keys()
-    if k.startswith("session_") and not k.endswith("_date_time")
-]
+    conversation = sample["conversation"]
 
-session_keys = sorted(session_keys, key=lambda x: int(x.split("_")[1]))
+    # Automatically detect session keys
+    session_keys = [
+        k for k in conversation.keys()
+        if k.startswith("session_") and not k.endswith("_date_time")
+    ]
 
+    session_keys = sorted(session_keys, key=lambda x: int(x.split("_")[1]))
 
-utterance_count = 0
+    for session_key in session_keys:
+        date_key = session_key + "_date_time"
+        session_date = conversation.get(date_key, "")
 
-for session_key in session_keys[:sessions_to_process]:  # maybe first 5 sessions
-    date_key = session_key + "_date_time"
-    session_date = conversation.get(date_key, "")
+        for turn in conversation[session_key]:
+            text = turn["text"]
+            engine.ingest_utterance_with_timestamp(text, session_date)
+            total_utterances += 1
 
-    for turn in conversation[session_key]:
-        text = turn["text"]
-        engine.ingest_utterance_with_timestamp(text, session_date)
-        utterance_count += 1
-
-
-print("Utterances processed:", utterance_count)
+print("\n--- INGESTION COMPLETE ---")
+print("Total utterances processed:", total_utterances)
 
 # ---------------- METRICS ----------------
 
 with engine.driver.session() as session:
-    total_facts = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()[
-        "count"
-    ]
+    total_facts = session.run(
+        "MATCH (f:Fact) RETURN count(f) AS count"
+    ).single()["count"]
 
     active = session.run(
         "MATCH (f:Fact {status:'ACTIVE'}) RETURN count(f) AS count"
@@ -76,9 +73,21 @@ with engine.driver.session() as session:
         "MATCH (f:Fact {status:'SUPERSEDED'}) RETURN count(f) AS count"
     ).single()["count"]
 
+    relation_distribution = list(session.run(
+        """
+        MATCH (f:Fact)
+        RETURN f.relation AS relation, count(*) AS count
+        ORDER BY count DESC
+        """
+    ))
+
+
 print("\n--- Layer 1 Metrics ---")
 print("Total facts:", total_facts)
 print("Active facts:", active)
 print("Superseded facts:", superseded)
 print("Conflicts resolved:", superseded)
-print("Session keys detected:", session_keys[:sessions_to_process])
+
+print("\n--- Relation Distribution ---")
+for record in relation_distribution:
+    print(f"{record['relation']}: {record['count']}")
