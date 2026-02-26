@@ -199,6 +199,64 @@ class Layer1Engine:
 
         return triplets
 
+    def _extract_with_llm(self, utterance) -> list[dict]:
+
+        prompt = f"""
+    Extract factual triplets as JSON array.
+
+    Each item must contain:
+    - subject = "User"
+    - relation ∈ {list(VALID_RELATIONS)}
+    - object = string
+    - timestamp = YYYY-MM or ""
+
+    Return ONLY a valid JSON array.
+    No explanation text.
+
+    TEXT:
+    {utterance}
+    """
+
+        response = requests.post(
+            f"{self.ollama_url}/api/chat",
+            json={
+                "model": self.ollama_model,
+                "messages": [
+                    {"role": "system", "content": "You are a strict JSON extractor."},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False
+            },
+            timeout=60
+        )
+
+        response.raise_for_status()
+
+        raw = response.json()["message"]["content"]
+
+        match = re.search(r"\[[\s\S]*\]", raw)
+        if not match:
+            return []
+
+        try:
+            data = json.loads(match.group())
+        except:
+            return []
+
+        cleaned = []
+        for item in data:
+            relation = item.get("relation", "Other")
+            if relation not in VALID_RELATIONS:
+                relation = "Other"
+
+            cleaned.append({
+                "subject": "User",
+                "relation": relation,
+                "object": str(item.get("object", "")).strip(),
+                "timestamp": str(item.get("timestamp", "")).strip(),
+            })
+
+        return cleaned
     # ============================================================
     # TIMESTAMP
     # ============================================================
