@@ -14,7 +14,7 @@ class Config:
     
     # Ollama Configuration
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:1b")
     
     # Embedding Configuration
     EMBEDDING_MODEL = os.getenv(

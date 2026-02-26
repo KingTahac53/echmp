@@ -80,10 +80,10 @@ def check_ollama():
             models = response.json().get("models", [])
             model_names = [m["name"] for m in models]
             
-            if "llama3.2:1b" in model_names:
-                print(f"   ✅ llama3.2:1b model available")
+            if "llama3.1:1b" in model_names:
+                print(f"   ✅ llama3.1:1b model available")
             else:
-                print(f"   ⚠️  llama3.2:1b not found. Available: {model_names}")
+                print(f"   ⚠️  llama3.1:1b not found. Available: {model_names}")
             
             return True
     except Exception as e:
@@ -142,7 +142,7 @@ def run_diagnostics():
             print("  → docker start neo4j")
         if not results["Ollama"]:
             print("  → ollama serve")
-            print("  → ollama pull llama3.2:1b")
+            print("  → ollama pull llama3.1:1b")
         return 1
 
 if __name__ == "__main__":
