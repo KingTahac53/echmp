@@ -4,7 +4,7 @@ import time
 
 # ---------------- CONFIG ----------------
 
-DATASET_PATH = r"D:/datascience_projects/echmp/data/locomo/locomo10.json"
+DATASET_PATH = "data/locomo/locomo10.json"
 
 config = {
     "vector_store": {
