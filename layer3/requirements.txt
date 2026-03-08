@@ -1,0 +1,5 @@
+# Layer 3: Strategic Pruning dependencies
+neo4j>=5.0.0
+python-dotenv>=1.0.0
+networkx>=3.0          # Used by Python PageRank fallback
+numpy>=1.24.0
