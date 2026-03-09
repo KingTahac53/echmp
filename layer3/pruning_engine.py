@@ -29,31 +29,57 @@ class Layer3Pruner:
     # Compute PageRank centrality
     # ------------------------------------------------
 
+    # def compute_centrality(self):
+
+    #     logger.info("Computing graph centrality...")
+
+    #     query = """
+    #     MATCH (s:Entity)-[:HAS_FACT]->(f:Fact)-[:TARGET]->(o:Entity)
+    #     RETURN f.fact_id AS fact_id,
+    #         COUNT { (s)--() } + COUNT { (o)--() } AS centrality
+    #     """
+
+    #     centrality = {}
+
+    #     with self.driver.session() as session:
+    #         results = session.run(query)
+
+    #         for r in results:
+    #             centrality[r["fact_id"]] = r["centrality"]
+
+    #     # normalize
+    #     max_c = max(centrality.values()) if centrality else 1
+
+    #     for k in centrality:
+    #         centrality[k] = centrality[k] / max_c
+
+    #     return centrality
+    
     def compute_centrality(self):
 
-        logger.info("Computing graph centrality...")
+        logger.info("Computing relation-based importance...")
 
         query = """
-        MATCH (s:Entity)-[:HAS_FACT]->(f:Fact)-[:TARGET]->(o:Entity)
-        RETURN f.fact_id AS fact_id,
-            COUNT { (s)--() } + COUNT { (o)--() } AS centrality
+        MATCH (f:Fact {status:'ACTIVE'})
+        RETURN f.relation AS relation, count(*) AS freq
         """
 
-        centrality = {}
+        relation_freq = {}
 
         with self.driver.session() as session:
             results = session.run(query)
 
             for r in results:
-                centrality[r["fact_id"]] = r["centrality"]
+                relation_freq[r["relation"]] = r["freq"]
 
-        # normalize
-        max_c = max(centrality.values()) if centrality else 1
+        max_freq = max(relation_freq.values()) if relation_freq else 1
 
-        for k in centrality:
-            centrality[k] = centrality[k] / max_c
+        relation_weight = {}
 
-        return centrality
+        for rel in relation_freq:
+            relation_weight[rel] = 1 - (relation_freq[rel] / max_freq)
+
+        return relation_weight
     # ------------------------------------------------
     # Fetch ACTIVE facts
     # ------------------------------------------------
@@ -150,7 +176,8 @@ class Layer3Pruner:
 
         for fact in facts:
 
-            centrality = centrality_map.get(fact["fact_id"], 0.1)
+            # centrality = centrality_map.get(fact["fact_id"], 0.1)
+            centrality = centrality_map.get(fact["relation"], 0.3)
             recency = self.recency_score(fact["timestamp"])
             relation = self.relation_score(fact["relation"])
 
@@ -159,6 +186,8 @@ class Layer3Pruner:
                 0.35 * recency +
                 0.25 * relation
             )
+
+            print(f"Fact {fact['fact_id']} -> centrality={centrality:.3f}, recency={recency:.3f}, relation={relation:.3f}, score={score:.3f}")
 
             if score < 0.60:
                 self.archive_fact(fact["fact_id"])
